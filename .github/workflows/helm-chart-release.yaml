@@ -1,0 +1,76 @@
+# .github/workflows/helm-chart-release.yml
+# GitHub Actions workflow for automated Helm chart packaging and repository management
+
+name: Release Helm Chart
+
+on:
+  push:
+    branches: [ main ]
+    paths: [ 'charts/**' ]
+  pull_request:
+    branches: [ main ]
+    paths: [ 'charts/**' ]
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
+
+    - name: Set up Helm
+      uses: azure/setup-helm@v3
+      with:
+        version: v3.12.1
+
+    - name: Lint Helm Charts
+      run: |
+        for chart in charts/*/; do
+          helm lint "$chart"
+        done
+
+    - name: Template Helm Charts
+      run: |
+        for chart in charts/*/; do
+          helm template test "$chart"
+        done
+
+  release:
+    needs: lint-and-test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
+
+    - name: Configure Git
+      run: |
+        git config user.name "$GITHUB_ACTOR"
+        git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
+
+    - name: Set up Helm
+      uses: azure/setup-helm@v3
+      with:
+        version: v3.12.1
+
+    - name: Package Helm Charts
+      run: |
+        mkdir -p packages
+        for chart in charts/*/; do
+          helm package "$chart" -d packages/
+        done
+
+    - name: Generate Repository Index
+      run: |
+        helm repo index packages/ --url https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
+
+    - name: Deploy to GitHub Pages
+      uses: peaceiris/actions-gh-pages@v3
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: ./packages
+        publish_branch: gh-pages
